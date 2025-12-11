@@ -67,12 +67,15 @@ data class PlayerStoreable(
         for (i in 0 until inventory.size()) {
             val stack = inventory.getStack(i)
             if (!stack.isEmpty) {
-                val encoded = ItemStack.CODEC.encodeStart(registryOps, stack)
-                encoded.result().ifPresent { nbtElement ->
-                    if (nbtElement is NbtCompound) {
-                        nbtElement.putByte("Slot", i.toByte())
-                        inventoryList.add(nbtElement)
-                    }
+                // Use VALIDATED_CODEC for proper validation
+                val encoded = ItemStack.VALIDATED_CODEC.encodeStart(registryOps, stack)
+                encoded.resultOrPartial { error ->
+                    WorldTools.LOG.warn("Failed to encode item stack at slot $i: $error")
+                }.ifPresent { nbtElement ->
+                    // ItemStack codec encodes to NbtCompound
+                    val itemNbt = nbtElement as? NbtCompound ?: return@ifPresent
+                    itemNbt.putByte("Slot", i.toByte())
+                    inventoryList.add(itemNbt)
                 }
             }
         }
@@ -81,18 +84,25 @@ data class PlayerStoreable(
         // Save enderchest
         val enderChest = player.enderChestInventory
         val enderList = net.minecraft.nbt.NbtList()
+        WorldTools.LOG.info("Saving enderchest for ${player.name.string}: size=${enderChest.size()}")
+
+        var savedCount = 0
         for (i in 0 until enderChest.size()) {
             val stack = enderChest.getStack(i)
+            WorldTools.LOG.info("  Slot $i: ${if (stack.isEmpty) "empty" else "${stack.count}x ${stack.item}"}")
             if (!stack.isEmpty) {
-                val encoded = ItemStack.CODEC.encodeStart(registryOps, stack)
-                encoded.result().ifPresent { nbtElement ->
-                    if (nbtElement is NbtCompound) {
-                        nbtElement.putByte("Slot", i.toByte())
-                        enderList.add(nbtElement)
-                    }
+                val encoded = ItemStack.VALIDATED_CODEC.encodeStart(registryOps, stack)
+                encoded.resultOrPartial { error ->
+                    WorldTools.LOG.warn("Failed to encode enderchest item at slot $i: $error")
+                }.ifPresent { nbtElement ->
+                    val itemNbt = nbtElement as? NbtCompound ?: return@ifPresent
+                    itemNbt.putByte("Slot", i.toByte())
+                    enderList.add(itemNbt)
+                    savedCount++
                 }
             }
         }
+        WorldTools.LOG.info("Saved $savedCount enderchest items to NBT")
         playerTag.put("EnderItems", enderList)
     }
 
@@ -103,6 +113,16 @@ data class PlayerStoreable(
 
             val newPlayerFile = File.createTempFile(player.uuidAsString + "-", ".dat", playerDataDir).toPath()
             val playerTag = NbtCompound()
+
+            // Manually save all important player data
+            // Save UUID as int array (vanilla format)
+            val uuid = player.uuid
+            playerTag.putIntArray("UUID", intArrayOf(
+                (uuid.mostSignificantBits shr 32).toInt(),
+                uuid.mostSignificantBits.toInt(),
+                (uuid.leastSignificantBits shr 32).toInt(),
+                uuid.leastSignificantBits.toInt()
+            ))
 
             // Save player position
             playerTag.put("Pos", net.minecraft.nbt.NbtList().apply {
@@ -117,8 +137,16 @@ data class PlayerStoreable(
                 add(net.minecraft.nbt.NbtFloat.of(player.pitch))
             })
 
+            // Save player motion
+            val velocity = player.velocity
+            playerTag.put("Motion", net.minecraft.nbt.NbtList().apply {
+                add(net.minecraft.nbt.NbtDouble.of(velocity.x))
+                add(net.minecraft.nbt.NbtDouble.of(velocity.y))
+                add(net.minecraft.nbt.NbtDouble.of(velocity.z))
+            })
+
             // Save dimension
-            playerTag.putString("Dimension", "minecraft:${player.world.registryKey.value.path}")
+            playerTag.putString("Dimension", player.world.registryKey.value.toString())
 
             // Save health and food
             playerTag.putFloat("Health", player.health)
@@ -130,11 +158,34 @@ data class PlayerStoreable(
             playerTag.putFloat("XpP", player.experienceProgress)
             playerTag.putInt("XpTotal", player.totalExperience)
 
-            // Save game mode
-            playerTag.putInt("playerGameType", 0) // 0 = survival
+            // Save game mode - default to survival
+            playerTag.putInt("playerGameType", 0)
 
-            // Save inventory and enderchest manually
+            // Save air, fire, and ground status
+            playerTag.putShort("Air", player.air.toShort())
+            playerTag.putShort("Fire", player.fireTicks.toShort())
+            playerTag.putBoolean("OnGround", player.isOnGround)
+            playerTag.putBoolean("Invulnerable", player.isInvulnerable)
+            playerTag.putInt("PortalCooldown", player.portalCooldown)
+            playerTag.putFloat("FallDistance", player.fallDistance.toFloat())
+
+            // Save abilities
+            val abilities = NbtCompound()
+            abilities.putBoolean("invulnerable", player.abilities.invulnerable)
+            abilities.putBoolean("flying", player.abilities.flying)
+            abilities.putBoolean("mayfly", player.abilities.allowFlying)
+            abilities.putBoolean("instabuild", player.abilities.creativeMode)
+            abilities.putFloat("flySpeed", player.abilities.flySpeed)
+            abilities.putFloat("walkSpeed", player.abilities.walkSpeed)
+            playerTag.put("abilities", abilities)
+
+            // Save score
+            playerTag.putInt("Score", player.score)
+
+            // Save inventory and enderchest with our properly encoded versions
             savePlayerInventory(player, playerTag)
+
+            WorldTools.LOG.info("Saved player ${player.name.string} with ${playerTag.keys.size} NBT keys")
 
             if (config.entity.censor.lastDeathLocation) {
                 playerTag.remove("LastDeathLocation")
