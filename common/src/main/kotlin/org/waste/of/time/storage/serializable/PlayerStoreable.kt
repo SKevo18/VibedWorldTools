@@ -67,10 +67,13 @@ data class PlayerStoreable(
         for (i in 0 until inventory.size()) {
             val stack = inventory.getStack(i)
             if (!stack.isEmpty) {
-                val itemNbt = NbtCompound()
-                itemNbt.putByte("Slot", i.toByte())
-                val encoded = ItemStack.CODEC.encode(stack, registryOps, itemNbt)
-                inventoryList.add(encoded.result().orElse(itemNbt) as NbtCompound)
+                val encoded = ItemStack.CODEC.encodeStart(registryOps, stack)
+                encoded.result().ifPresent { nbtElement ->
+                    if (nbtElement is NbtCompound) {
+                        nbtElement.putByte("Slot", i.toByte())
+                        inventoryList.add(nbtElement)
+                    }
+                }
             }
         }
         playerTag.put("Inventory", inventoryList)
@@ -81,10 +84,13 @@ data class PlayerStoreable(
         for (i in 0 until enderChest.size()) {
             val stack = enderChest.getStack(i)
             if (!stack.isEmpty) {
-                val itemNbt = NbtCompound()
-                itemNbt.putByte("Slot", i.toByte())
-                val encoded = ItemStack.CODEC.encode(stack, registryOps, itemNbt)
-                enderList.add(encoded.result().orElse(itemNbt) as NbtCompound)
+                val encoded = ItemStack.CODEC.encodeStart(registryOps, stack)
+                encoded.result().ifPresent { nbtElement ->
+                    if (nbtElement is NbtCompound) {
+                        nbtElement.putByte("Slot", i.toByte())
+                        enderList.add(nbtElement)
+                    }
+                }
             }
         }
         playerTag.put("EnderItems", enderList)
