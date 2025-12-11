@@ -1,11 +1,14 @@
 package org.waste.of.time.storage.serializable
 
 import net.minecraft.entity.player.PlayerEntity
+import net.minecraft.inventory.Inventories
+import net.minecraft.item.ItemStack
 import net.minecraft.nbt.NbtCompound
 import net.minecraft.nbt.NbtIo
 import net.minecraft.text.MutableText
 import net.minecraft.util.Util
 import net.minecraft.util.WorldSavePath
+import net.minecraft.util.collection.DefaultedList
 import net.minecraft.world.level.storage.LevelStorage.Session
 import org.waste.of.time.Utils.asString
 import org.waste.of.time.WorldTools
@@ -55,6 +58,38 @@ data class PlayerStoreable(
         StatisticManager.dimensions.add(player.world.registryKey.value.path)
     }
 
+    private fun savePlayerInventory(player: PlayerEntity, playerTag: NbtCompound) {
+        val inventory = player.inventory
+        val inventoryList = net.minecraft.nbt.NbtList()
+        val registryOps = player.world.registryManager.getOps(net.minecraft.nbt.NbtOps.INSTANCE)
+
+        // Save main inventory, armor, and offhand
+        for (i in 0 until inventory.size()) {
+            val stack = inventory.getStack(i)
+            if (!stack.isEmpty) {
+                val itemNbt = NbtCompound()
+                itemNbt.putByte("Slot", i.toByte())
+                val encoded = ItemStack.CODEC.encode(stack, registryOps, itemNbt)
+                inventoryList.add(encoded.result().orElse(itemNbt) as NbtCompound)
+            }
+        }
+        playerTag.put("Inventory", inventoryList)
+
+        // Save enderchest
+        val enderChest = player.enderChestInventory
+        val enderList = net.minecraft.nbt.NbtList()
+        for (i in 0 until enderChest.size()) {
+            val stack = enderChest.getStack(i)
+            if (!stack.isEmpty) {
+                val itemNbt = NbtCompound()
+                itemNbt.putByte("Slot", i.toByte())
+                val encoded = ItemStack.CODEC.encode(stack, registryOps, itemNbt)
+                enderList.add(encoded.result().orElse(itemNbt) as NbtCompound)
+            }
+        }
+        playerTag.put("EnderItems", enderList)
+    }
+
     private fun savePlayerData(player: PlayerEntity, session: Session) {
         try {
             val playerDataDir = session.getDirectory(WorldSavePath.PLAYERDATA).toFile()
@@ -62,6 +97,39 @@ data class PlayerStoreable(
 
             val newPlayerFile = File.createTempFile(player.uuidAsString + "-", ".dat", playerDataDir).toPath()
             val playerTag = NbtCompound()
+
+            // Save player position
+            playerTag.put("Pos", net.minecraft.nbt.NbtList().apply {
+                add(net.minecraft.nbt.NbtDouble.of(player.x))
+                add(net.minecraft.nbt.NbtDouble.of(player.y))
+                add(net.minecraft.nbt.NbtDouble.of(player.z))
+            })
+
+            // Save player rotation
+            playerTag.put("Rotation", net.minecraft.nbt.NbtList().apply {
+                add(net.minecraft.nbt.NbtFloat.of(player.yaw))
+                add(net.minecraft.nbt.NbtFloat.of(player.pitch))
+            })
+
+            // Save dimension
+            playerTag.putString("Dimension", "minecraft:${player.world.registryKey.value.path}")
+
+            // Save health and food
+            playerTag.putFloat("Health", player.health)
+            playerTag.putInt("foodLevel", player.hungerManager.foodLevel)
+            playerTag.putFloat("foodSaturationLevel", player.hungerManager.saturationLevel)
+
+            // Save XP
+            playerTag.putInt("XpLevel", player.experienceLevel)
+            playerTag.putFloat("XpP", player.experienceProgress)
+            playerTag.putInt("XpTotal", player.totalExperience)
+
+            // Save game mode
+            playerTag.putInt("playerGameType", 0) // 0 = survival
+
+            // Save inventory and enderchest manually
+            savePlayerInventory(player, playerTag)
+
             if (config.entity.censor.lastDeathLocation) {
                 playerTag.remove("LastDeathLocation")
             }
