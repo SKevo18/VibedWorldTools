@@ -6,7 +6,6 @@ import net.minecraft.text.MutableText
 import net.minecraft.util.Util
 import net.minecraft.util.WorldSavePath
 import net.minecraft.util.math.BlockPos
-import net.minecraft.world.GameRules
 import net.minecraft.world.level.storage.LevelStorage.Session
 import org.waste.of.time.Utils.toByte
 import org.waste.of.time.WorldTools.DAT_EXTENSION
@@ -116,9 +115,8 @@ class LevelDataStoreable : Storeable() {
         putByte("Difficulty", world.levelProperties.difficulty.id.toByte())
         putBoolean("DifficultyLocked", false) // not sure
 
-        // GameRules
-        val rules = mc.server?.gameRules?.genGameRules() ?: NbtCompound()
-        put("GameRules", rules)
+        // GameRules - simplified for 1.21.11+ (API changed significantly)
+        put("GameRules", NbtCompound())
 
         // Minimal Player tag to spawn near captured area
         put("Player", NbtCompound().apply {
@@ -144,21 +142,6 @@ class LevelDataStoreable : Storeable() {
         // skip wandering trader id
     }
 
-    private fun GameRules.genGameRules() = toNbt().apply {
-        val setting = config.world.gameRules
-        if (!setting.modifyGameRules) return@apply
-
-        putString(GameRules.DO_WARDEN_SPAWNING.name, setting.doWardenSpawning.toString())
-        putString(GameRules.DO_FIRE_TICK.name, setting.doFireTick.toString())
-        putString(GameRules.DO_VINES_SPREAD.name, setting.doVinesSpread.toString())
-        putString(GameRules.DO_MOB_SPAWNING.name, setting.doMobSpawning.toString())
-        putString(GameRules.DO_DAYLIGHT_CYCLE.name, setting.doDaylightCycle.toString())
-        putString(GameRules.KEEP_INVENTORY.name, setting.keepInventory.toString())
-        putString(GameRules.DO_MOB_GRIEFING.name, setting.doMobGriefing.toString())
-        putString(GameRules.DO_TRADER_SPAWNING.name, setting.doTraderSpawning.toString())
-        putString(GameRules.DO_PATROL_SPAWNING.name, setting.doPatrolSpawning.toString())
-        putString(GameRules.DO_WEATHER_CYCLE.name, setting.doWeatherCycle.toString())
-    }
 
     private fun generatorMockNbt() = NbtCompound().apply {
         putByte("bonus_chest", config.world.worldGenerator.bonusChest.toByte())
